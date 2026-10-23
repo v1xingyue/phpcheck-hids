@@ -1,6 +1,7 @@
 /dist/
 /phpcheck
 /phpcheck-linux-*
+/phpcheck-darwin-*
 *.test
 coverage.out
 .DS_Store

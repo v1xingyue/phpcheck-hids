@@ -15,7 +15,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -68,13 +67,10 @@ type probeResult struct {
 
 // CheckHost inspects running PHP-FPM processes and Apache's loaded libphp modules.
 // Each SAPI/path is checked once; PID identifies the representative/sample process.
-// Run as root in the target Linux PID namespace. An error is not "no PHP".
+// Run as root on Linux or macOS. An error is not "no PHP".
 // A probe covers only its responding worker/request, not every pool/vhost.
 func CheckHost(ctx context.Context, probes []Probe) (Report, error) {
-	if runtime.GOOS != "linux" {
-		return Report{Status: Unknown}, errors.New("CheckHost requires Linux /proc")
-	}
-	r, err := checkHost(ctx, "/proc", probes)
+	r, err := scanHost(ctx, probes)
 	if os.Geteuid() != 0 {
 		r.Warnings = append(r.Warnings, "not running as root; other users' processes may be hidden")
 		r.Status = aggregate(r.Instances, true)
@@ -198,18 +194,7 @@ func checkHost(ctx context.Context, proc string, probes []Probe) (Report, error)
 			item.Status, item.Reason = Unknown, "process changed during runtime probe"
 			continue
 		}
-		if item.Version != "" && item.Version != p.Version {
-			item.Status, item.Reason = Unknown, "runtime probe and loaded build versions disagree"
-			continue
-		}
-		candidate := *item
-		candidate.PID, candidate.StartTicks = p.PID, p.StartTicks
-		candidate.Version, candidate.Config = p.Version, &p.RuntimeConfig
-		evaluate(&candidate)
-		// Keep the least reassuring result when multiple probes cover one path.
-		if !probed[i] || aggregate([]Instance{*item, candidate}, false) == candidate.Status {
-			*item = candidate
-		}
+		applyRuntimeProbe(item, p, probed[i])
 		probed[i] = true
 	}
 	r.Status = aggregate(r.Instances, len(r.Warnings) != 0)
@@ -217,7 +202,22 @@ func checkHost(ctx context.Context, proc string, probes []Probe) (Report, error)
 }
 
 func phpModule(name string) bool {
-	return strings.HasPrefix(name, "libphp") && (strings.HasSuffix(name, ".so") || strings.Contains(name, ".so."))
+	return strings.HasPrefix(name, "libphp") && (strings.HasSuffix(name, ".so") || strings.Contains(name, ".so.") || strings.HasSuffix(name, ".dylib"))
+}
+
+func applyRuntimeProbe(item *Instance, p probeResult, alreadyProbed bool) {
+	if item.Version != "" && item.Version != p.Version {
+		item.Status, item.Reason = Unknown, "runtime probe and loaded build versions disagree"
+		return
+	}
+	candidate := *item
+	candidate.PID, candidate.StartTicks = p.PID, p.StartTicks
+	candidate.Version, candidate.Config = p.Version, &p.RuntimeConfig
+	evaluate(&candidate)
+	// Keep the least reassuring result when multiple probes cover one path.
+	if !alreadyProbed || aggregate([]Instance{*item, candidate}, false) == candidate.Status {
+		*item = candidate
+	}
 }
 
 func startTicks(stat string) (string, error) {
@@ -387,7 +387,7 @@ func fetchProbe(ctx context.Context, p Probe) (probeResult, error) {
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		return result, errors.New("unexpected trailing probe response")
 	}
-	if result.PID <= 0 || result.StartTicks == "" || result.Version == "" || (result.SAPI != "fpm-fcgi" && result.SAPI != "apache2handler") {
+	if result.PID <= 0 || result.Version == "" || (result.SAPI != "fpm-fcgi" && result.SAPI != "apache2handler") {
 		return result, errors.New("incomplete or unsupported runtime probe")
 	}
 	return result, nil

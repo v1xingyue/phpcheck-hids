@@ -17,12 +17,16 @@ if (PHP_SAPI !== 'fpm-fcgi' && PHP_SAPI !== 'apache2handler') {
     http_response_code(503);
     exit;
 }
-$stat = @file_get_contents('/proc/self/stat');
-$end = $stat === false ? false : strrpos($stat, ')');
-$fields = $end === false ? array() : preg_split('/\s+/', trim(substr($stat, $end + 1)));
-if (!isset($fields[19]) || !ctype_digit($fields[19])) {
-    http_response_code(503);
-    exit;
+$ticks = '';
+if (PHP_OS !== 'Darwin') {
+    $stat = @file_get_contents('/proc/self/stat');
+    $end = $stat === false ? false : strrpos($stat, ')');
+    $fields = $end === false ? array() : preg_split('/\s+/', trim(substr($stat, $end + 1)));
+    if (!isset($fields[19]) || !ctype_digit($fields[19])) {
+        http_response_code(503);
+        exit;
+    }
+    $ticks = $fields[19];
 }
 $ini = ini_get_all(null, true);
 $progress = isset($ini['session.upload_progress.enabled']) ? $ini['session.upload_progress.enabled'] : null;
@@ -31,7 +35,7 @@ header('Content-Type: application/json');
 header('Cache-Control: no-store');
 echo json_encode(array(
     'pid' => getmypid(),
-    'start_ticks' => $fields[19],
+    'start_ticks' => $ticks,
     'sapi' => PHP_SAPI,
     'version' => PHP_VERSION,
     'progress' => $progress === null ? null : (string)$progress['local_value'],
