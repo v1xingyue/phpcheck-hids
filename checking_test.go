@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestInstaller(t *testing.T) {
+func TestCheckingScript(t *testing.T) {
 	for _, tc := range []struct {
 		os, arch, asset string
 		corrupt         bool
@@ -66,7 +66,7 @@ cp "$TEST_FIXTURES/${url##*/}" "$out"
 				}
 				write(filepath.Join(root, "SHA256SUMS"), sum+"  "+tc.asset+"\n")
 			}
-			cmd := exec.Command("sh", "install.sh", "-probe", "http://127.0.0.1/probe.php")
+			cmd := exec.Command("sh", "checking.sh", "-probe", "http://127.0.0.1/probe.php")
 			cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "TMPDIR="+tmp,
 				"TEST_OS="+tc.os, "TEST_ARCH="+tc.arch, "TEST_FIXTURES="+root, "TEST_REQUESTS="+filepath.Join(root, "requests"))
 			output, err := cmd.CombinedOutput()

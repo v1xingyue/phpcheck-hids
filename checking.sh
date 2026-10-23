@@ -18,19 +18,30 @@ esac
 [ "$os-$arch" != darwin-386 ] || fail '32-bit macOS is not supported'
 
 repo=https://github.com/v1xingyue/phpcheck-hids
+# prepare-private.sh fills these two values for a self-contained private mirror.
+download_base=''
+release_version=''
+protocols='=https'
+case "$download_base" in http://*) protocols='=http,https' ;; esac
 download() {
-  curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+  curl --fail --silent --show-error --location --proto "$protocols" --proto-redir "$protocols" \
     --retry 3 --connect-timeout 10 --max-time 120 "$@"
 }
-# Resolve latest once so the binary and checksum cannot come from different releases.
-release_url=$(download --output /dev/null --write-out '%{url_effective}' "$repo/releases/latest")
-case "$release_url" in
-  "$repo"/releases/tag/v*) version=${release_url##*/} ;;
-  *) fail 'cannot resolve latest release tag' ;;
-esac
-case "$version" in *[!a-zA-Z0-9._-]*|'') fail 'invalid release tag' ;; esac
 asset=phpcheck-$os-$arch
-base=$repo/releases/download/$version
+if [ -n "$download_base" ]; then
+  [ -n "$release_version" ] || fail 'private mirror version is missing'
+  base=$download_base
+  version=$release_version
+else
+  # Resolve latest once so the binary and checksum cannot come from different releases.
+  release_url=$(download --output /dev/null --write-out '%{url_effective}' "$repo/releases/latest")
+  case "$release_url" in
+    "$repo"/releases/tag/v*) version=${release_url##*/} ;;
+    *) fail 'cannot resolve latest release tag' ;;
+  esac
+  case "$version" in *[!a-zA-Z0-9._-]*|'') fail 'invalid release tag' ;; esac
+  base=$repo/releases/download/$version
+fi
 
 umask 077
 temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/phpcheck.XXXXXX")

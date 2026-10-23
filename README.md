@@ -28,24 +28,89 @@
 Linux 与 macOS 使用相同命令，自动识别系统和 CPU 架构：
 
 ```sh
-curl -fsSL https://github.com/v1xingyue/phpcheck-hids/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/v1xingyue/phpcheck-hids/releases/latest/download/checking.sh | sh
 ```
 
 为完整读取其他用户的服务进程，推荐在 root 会话中执行，或使用：
 
 ```sh
-curl -fsSL https://github.com/v1xingyue/phpcheck-hids/releases/latest/download/install.sh | sudo sh
+curl -fsSL https://github.com/v1xingyue/phpcheck-hids/releases/latest/download/checking.sh | sudo sh
 ```
 
 传递检测器参数，例如查看帮助：
 
 ```sh
-curl -fsSL https://github.com/v1xingyue/phpcheck-hids/releases/latest/download/install.sh | sh -s -- -h
+curl -fsSL https://github.com/v1xingyue/phpcheck-hids/releases/latest/download/checking.sh | sh -s -- -h
 ```
 
 脚本先解析最新版本标签，再从同一版本下载匹配二进制与 `SHA256SUMS`；校验通过后执行，并在退出时清理临时目录。不会永久安装文件，也不会自行提权。扫描 JSON 写入 stdout，下载/执行提示写入 stderr；检测器退出码原样返回，下载或校验失败则返回 1，不执行二进制。依赖 `curl`、`uname`、`awk`、`mktemp` 以及 `sha256sum` 或 `shasum`。不支持的系统/架构会直接报错。
 
 脚本通过当前进程架构选择产物；在 Rosetta 下可能选择 amd64 版本。校验清单与二进制来自同一 GitHub Release，校验用于完整性检查，不是独立签名认证。生产 HIDS 建议直接集成 Go 包或分发固定版本二进制，避免每次采集都联网下载。
+
+## 准备私有下载执行库
+
+`prepare-private.sh` 接收对外 URL 和静态目录，下载五个平台的二进制及 `checking.sh`，验证上游 SHA-256 后，生成适配私有 URL 的入口与新校验清单。私有 `checking.sh` 不访问 GitHub，不查询公网 latest；所有运行文件均从私有库的同一个固定版本目录获取。
+
+先下载工具，再执行：
+
+```sh
+curl -fsSLO https://github.com/v1xingyue/phpcheck-hids/releases/latest/download/prepare-private.sh
+sh prepare-private.sh \
+  --url https://download.example.com/phpcheck \
+  --static-dir /srv/www/phpcheck
+```
+
+也可直接用 curl 传参执行：
+
+```sh
+curl -fsSL https://github.com/v1xingyue/phpcheck-hids/releases/latest/download/prepare-private.sh | \
+  sh -s -- --url https://download.example.com/phpcheck --static-dir /srv/www/phpcheck
+```
+
+| 参数 | 含义 |
+|---|---|
+| `--url` | 必填，静态目录对外的 HTTP(S) 根 URL，例如 `https://download.example.com/phpcheck` |
+| `--static-dir` | 必填，Web 服务器映射到上述 URL 的本地目录，脚本会按需创建 |
+| `--version` | 可选，固定上游版本，例如 `v0.3.0`；省略时只解析一次最新 Release |
+
+URL 使用普通主机名/IPv4 和可选端口、路径；不接受 URL 凭据、查询参数、fragment 或 shell 特殊字符。工具依赖 POSIX Shell、curl、grep、awk、sed、mktemp 和 sha256sum/shasum，无需 Go、Python 或 GitHub CLI。准备机器需要能访问 GitHub Release；准备完成后，客户端只需要访问私有静态站点。
+
+目录示例：
+
+```text
+/srv/www/phpcheck/
+├── checking.sh                  # 对外一键入口，固定到下面的版本目录
+└── releases/
+    └── v0.3.0/
+        ├── phpcheck-linux-386
+        ├── phpcheck-linux-amd64
+        ├── phpcheck-linux-arm64
+        ├── phpcheck-darwin-amd64
+        ├── phpcheck-darwin-arm64
+        ├── checking.sh          # 与根入口内容相同，已写入私有 URL/版本
+        └── SHA256SUMS           # 包括修改后的 checking.sh 的新校验值
+```
+
+把 `https://download.example.com/phpcheck/` 映射到 `/srv/www/phpcheck/` 后，客户端使用：
+
+```sh
+curl -fsSL https://download.example.com/phpcheck/checking.sh | sh
+# 需要完整访问服务进程时：
+curl -fsSL https://download.example.com/phpcheck/checking.sh | sudo sh
+```
+
+例如已有 Nginx HTTPS 站点可配置以下路径映射（按实际域名、目录和访问策略调整）：
+
+```nginx
+location /phpcheck/ {
+    alias /srv/www/phpcheck/;
+    autoindex off;
+}
+```
+
+脚本不安装、不启动 HTTP 服务，也不修改 Nginx、证书、防火墙或鉴权。这里的“私有”是指自行托管；网络隔离与访问控制需由你的静态服务提供。目标目录应可由 Web 服务读取，避免放在无法遍历的私有家目录中。
+
+发布新版本时再次运行准备脚本，使用新的 `--version` 或省略该参数以取最新版本。工具先暂存和校验全部文件，再发布不可变版本目录，最后原子切换根 `checking.sh`。失败不切换当前入口，旧版本目录保留，已经开始运行的客户端继续使用原版本。相同版本目录已存在时拒绝覆盖；更换 URL 或重建同版本时请使用新的静态目录。一个目录同一时刻只允许一个发布者；进程被强制终止后，如存在 `.prepare-private.lock`，应确认没有发布任务运行后再清理该锁目录。
 
 ## 下载 Release
 
@@ -58,8 +123,9 @@ curl -fsSL https://github.com/v1xingyue/phpcheck-hids/releases/latest/download/i
 | `phpcheck-linux-arm64` | Linux ARM64 / AArch64 |
 | `phpcheck-darwin-amd64` | macOS Intel 64 位 |
 | `phpcheck-darwin-arm64` | macOS Apple Silicon |
-| `install.sh` | 自动下载、校验并执行的 POSIX Shell 脚本 |
-| `SHA256SUMS` | 五个二进制文件及脚本的 SHA-256 校验值 |
+| `checking.sh` | 自动下载、校验并执行的 POSIX Shell 脚本 |
+| `prepare-private.sh` | 按 URL 和静态目录准备私有下载执行库 |
+| `SHA256SUMS` | 五个二进制文件及两个脚本的 SHA-256 校验值 |
 
 以 amd64 为例，先下载和核对，再执行：
 
@@ -71,14 +137,14 @@ chmod +x phpcheck-linux-amd64
 sudo ./phpcheck-linux-amd64
 ```
 
-Linux ARM64 将上面的 `amd64` 换成 `arm64`。macOS 使用对应的 `darwin` 文件，并用 `shasum -a 256 -c` 核对清单。macOS 产物从 v0.2.0 起提供，不包含 Apple Developer ID 签名或公证。
+Linux ARM64 将上面的 `amd64` 换成 `arm64`。macOS 使用对应的 `darwin` 文件，并用 `shasum -a 256 -c` 核对清单。macOS 产物从 v0.2.0 起提供，不包含 Apple Developer ID 签名或公证。一键入口从 v0.3.0 起改名为 `checking.sh`；旧版本的历史附件不修改。
 
 ## 在 HIDS Agent 中集成
 
 ### 方式一：直接调用 Go 包
 
 ```sh
-go get github.com/v1xingyue/phpcheck-hids@v0.2.0
+go get github.com/v1xingyue/phpcheck-hids@v0.3.0
 ```
 
 包名为 `phpcheck`。以下代码可作为 HIDS 采集任务的调用方式；调度和事件发送使用你已有 Agent 的实现：
@@ -251,15 +317,15 @@ GOOS=linux GOARCH=amd64 go test -c -o /tmp/phpcheck.test
 
 1. 推送 `main`、提交 Pull Request 或手动触发：在 Linux amd64、macOS Intel、macOS ARM64 分别检查 gofmt、运行 `go vet`、`go test -race ./...` 和脚本语法检查。
 2. 测试成功后，以 `CGO_ENABLED=0`、`-trimpath`、`-ldflags='-s -w'` 并行构建 Linux `386`/`amd64`/`arm64` 和 macOS `amd64`/`arm64`，上传 Actions artifacts。
-3. 推送 `vMAJOR.MINOR.PATCH` 标签：五种目标全部构建成功后，计算 SHA-256 并创建 GitHub Release，上传五个二进制、`install.sh` 和 `SHA256SUMS`。
+3. 推送 `vMAJOR.MINOR.PATCH` 标签：五种目标全部构建成功后，计算 SHA-256 并创建 GitHub Release，上传五个二进制、`checking.sh`、`prepare-private.sh` 和 `SHA256SUMS`。
 
 仅发布 job 有 `contents: write` 权限；测试和构建 job 为只读。工作流使用 GitHub 自带 `GITHUB_TOKEN`，不需要额外配置 PAT。官方 Actions 固定到提交 SHA，更新版本时需同步更新这些 SHA。
 
 维护者发布示例：
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 请在发布前确认 README 的版本规则仍符合 PHP 官方和目标供应商公告。工作流使用 Go 当前稳定版构建；`go.mod` 声明源码最低 Go 1.22，CI 不覆盖所有旧工具链。Linux amd64 和两个 macOS 目标会运行本机 CLI 帮助验证；Linux 386/arm64 是交叉编译产物，不代表已完成对应硬件或真实 PHP 服务集成测试。
@@ -273,8 +339,10 @@ checker_test.go            规则、进程发现、路径去重和探针测试
 cmd/phpcheck/main.go       命令行入口
 cmd/phpcheck/main_test.go  参数与退出码测试
 probe.php                  可选的本机 PHP 配置采样端点
-install.sh                 按当前系统/架构下载、校验并执行
-installer_test.go          下载脚本离线验证
+checking.sh                按当前系统/架构下载、校验并执行
+checking_test.go           下载脚本离线验证
+prepare-private.sh        下载并准备私有静态库
+private_mirror_test.go     私有 URL、重算校验和失败保留旧版本验证
 .github/workflows/ci.yml   测试、跨架构编译与 Release 发布
 LICENSE / NOTICE           Apache-2.0 许可证与来源说明
 ```

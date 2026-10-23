@@ -28,8 +28,10 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test -race ./...
-      - name: Check installer shell syntax
-        run: sh -n install.sh
+      - name: Check shell scripts
+        run: |
+          sh -n checking.sh
+          sh -n prepare-private.sh
 
   build:
     needs: test
@@ -86,9 +88,9 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Use a vMAJOR.MINOR.PATCH tag'; exit 1; }
-          cp install.sh dist/install.sh
+          cp checking.sh prepare-private.sh dist/
           cd dist
-          sha256sum phpcheck-linux-* phpcheck-darwin-* install.sh > SHA256SUMS
+          sha256sum phpcheck-linux-* phpcheck-darwin-* checking.sh prepare-private.sh > SHA256SUMS
           gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" \
-            --notes 'PHP2Shell assessment for HIDS on Linux (386/amd64/arm64) and macOS (amd64/arm64). Includes install.sh for automatic platform selection, checksum verification and execution. Configuration mitigation is partial, not a complete fix. See README for scope and integration.' \
-            phpcheck-linux-* phpcheck-darwin-* install.sh SHA256SUMS
+            --notes 'PHP2Shell assessment for HIDS on Linux and macOS. checking.sh automatically downloads, verifies and runs the matching binary. prepare-private.sh prepares a versioned private static mirror from --url and --static-dir. Configuration mitigation remains partial, not a complete fix. See README for usage.' \
+            phpcheck-linux-* phpcheck-darwin-* checking.sh prepare-private.sh SHA256SUMS
