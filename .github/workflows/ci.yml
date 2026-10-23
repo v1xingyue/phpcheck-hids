@@ -1,0 +1,82 @@
+name: CI and Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache: false
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race ./...
+
+  build:
+    needs: test
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        arch: ['386', amd64, arm64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache: false
+      - name: Build stripped Linux binary
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags='-s -w' -o "dist/phpcheck-linux-${GOARCH}" ./cmd/phpcheck
+      - name: Smoke test amd64 executable
+        if: matrix.arch == 'amd64'
+        run: ./dist/phpcheck-linux-amd64 -h
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: phpcheck-linux-${{ matrix.arch }}
+          path: dist/phpcheck-linux-${{ matrix.arch }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download release binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: phpcheck-linux-*
+          path: dist
+          merge-multiple: true
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Use a vMAJOR.MINOR.PATCH tag'; exit 1; }
+          cd dist
+          sha256sum phpcheck-linux-* > SHA256SUMS
+          gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" \
+            --notes 'Linux PHP2Shell assessment module for HIDS. Includes x86 (386/amd64) and ARM64 static binaries and SHA256SUMS. Configuration mitigation is partial and does not establish patch status. See README for scope and integration.' \
+            phpcheck-linux-* SHA256SUMS

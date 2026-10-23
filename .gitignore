@@ -1,0 +1,6 @@
+/dist/
+/phpcheck
+/phpcheck-linux-*
+*.test
+coverage.out
+.DS_Store

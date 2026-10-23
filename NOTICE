@@ -1,0 +1,9 @@
+phpcheck-hids
+
+The PHP2Shell version classification rules are adapted from
+https://github.com/openai/php2shell-checker
+Snapshot: ffcd3fc82e5b404f2a04a95b2805ca7639d530fa
+Upstream is licensed under the Apache License, Version 2.0.
+
+This is an independent Go implementation for HIDS integration.
+It is not an official PHP or OpenAI project and does not imply their endorsement.
