@@ -91,6 +91,6 @@ jobs:
           cp checking.sh prepare-private.sh dist/
           cd dist
           sha256sum phpcheck-linux-* phpcheck-darwin-* checking.sh prepare-private.sh > SHA256SUMS
-          gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" \
+          gh release create "$RELEASE_TAG" --verify-tag --latest --title "$RELEASE_TAG" \
             --notes 'PHP2Shell assessment for HIDS on Linux and macOS. checking.sh automatically downloads, verifies and runs the matching binary. prepare-private.sh prepares a versioned private static mirror from --url and --static-dir. Configuration mitigation remains partial, not a complete fix. See README for usage.' \
             phpcheck-linux-* phpcheck-darwin-* checking.sh prepare-private.sh SHA256SUMS

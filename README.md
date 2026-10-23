@@ -317,7 +317,7 @@ GOOS=linux GOARCH=amd64 go test -c -o /tmp/phpcheck.test
 
 1. 推送 `main`、提交 Pull Request 或手动触发：在 Linux amd64、macOS Intel、macOS ARM64 分别检查 gofmt、运行 `go vet`、`go test -race ./...` 和脚本语法检查。
 2. 测试成功后，以 `CGO_ENABLED=0`、`-trimpath`、`-ldflags='-s -w'` 并行构建 Linux `386`/`amd64`/`arm64` 和 macOS `amd64`/`arm64`，上传 Actions artifacts。
-3. 推送 `vMAJOR.MINOR.PATCH` 标签：五种目标全部构建成功后，计算 SHA-256 并创建 GitHub Release，上传五个二进制、`checking.sh`、`prepare-private.sh` 和 `SHA256SUMS`。
+3. 推送 `vMAJOR.MINOR.PATCH` 标签：五种目标全部构建成功后，计算 SHA-256 并创建 GitHub Release，上传五个二进制、`checking.sh`、`prepare-private.sh` 和 `SHA256SUMS`，通过 `--latest` 显式标记为 Latest。发布旧版本标签也会将该版本标记为 Latest，维护者需按预期的发布顺序推送标签。
 
 仅发布 job 有 `contents: write` 权限；测试和构建 job 为只读。工作流使用 GitHub 自带 `GITHUB_TOKEN`，不需要额外配置 PAT。官方 Actions 固定到提交 SHA，更新版本时需同步更新这些 SHA。
 
